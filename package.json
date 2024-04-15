@@ -1,0 +1,27 @@
+{
+  "name": "pump-sniper",
+  "version": "1.0.0",
+  "description": "Solana Pump.fun wallet monitor and sniper",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node scripts/main.ts --disable-warning --no-warnings"
+  },
+  "keywords": [],
+  "author": "iSyqozz <fares.hassen512@gmail.com>",
+  "license": "ISC",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@solana/spl-token": "^0.4.3",
+    "@solana/web3.js": "^1.91.2",
+    "bn.js": "^5.2.1",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "jito-ts": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.3"
+  },
+  "repository": "https://github.com/iSyqozz/Pump.fun-pool-bonding-curve-sniper.git"
+}

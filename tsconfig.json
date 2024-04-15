@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["es2015", "es2017", "es2020", "dom"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "es2020",  // Update the target to es2020
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "pretty": true,
+    "strict": true,
+    "outDir": "./build",
+    "skipLibCheck": true,
+    "noImplicitAny": true,
+    "esModuleInterop": true,
+    "declaration": false,
+    "resolveJsonModule": true,
+  },
+  "include": [
+    "**/*"
+  ],
+  "compileOnSave": false
+}
