@@ -18,6 +18,23 @@ import {
   EVENT_AUTH,
 } from "../constants"
 
+interface PoolData {
+  account: any,
+  mint: any,
+  mintAuth: any,
+  bondingCurve: any,
+  bondingCurveAta: any,
+  globalState: any,
+  user: any,
+  userAta: any,
+  signerTokenAccount: any,
+  decimals: any,
+  virtualTokenReserves: any,
+  virtualSolReserves: any,
+  adjustedVirtualTokenReserves: any,
+  adjustedVirtualSolReserves: any,
+  virtualTokenPrice: any,
+}
 
 process.removeAllListeners('warning')
 dotenv.config();
@@ -35,6 +52,17 @@ const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
 const priorityFee: number = 2000000
+// const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+
+const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
+const maxRetriesString = process.env.MAX_RETRIES as string;
+const maxRetries = Number(maxRetriesString);
+const numberAmount = Number(0.0001);
+const minMaxAmount = numberAmount + (numberAmount * 0.15);
+
+//getting max amount to swap with:
+const maxSolCost = minMaxAmount
+
 
 
 async function startConnection(
@@ -104,225 +132,221 @@ async function findNewTokensV2() {
 }
 
 
+async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
+  let neededInstruction: PartiallyDecodedInstruction | ParsedInstruction | null = null;
+  let parsedSig: ParsedTransactionWithMeta | null = null
+  const confirmed_sigs: string[] = [txId]
+  const parsed_sigs = await parseSignatures(connection, confirmed_sigs);
+
+  for (var i = 0; i < parsed_sigs.length; i++) {
+    try {
+      const sig = parsed_sigs[i];
+      if (!sig) { continue }
+
+      const blockTime = sig.blockTime;
+      const currentTime = Math.floor(Date.now() / 1000);
+
+      //@ts-ignore
+      const instructions = (sig.transaction.message.instructions);
+
+      for (let ix of instructions) {
+        try {
+          const hasNeededProgramId = (ix.programId.toBase58() == programID);
+          //@ts-ignore
+          //console.log(ix.accounts.length);
+          //console.log(ix.programId.toBase58());
+          //console.log(confirmed_sigs[i])
+
+          if (!ix.accounts) {
+            continue
+          }
+
+          //@ts-ignore
+          const hasNeededAccounts = ix.accounts.length == 14;
+
+          if (hasNeededProgramId && hasNeededAccounts) {
+            // transaction should should be processed within one minute of detecting it here
+            // if (!blockTime || currentTime - blockTime > 60) {
+            //   console.log(`${getCurrentDateTime()} Old Bonding Curve detected, Ignoring stale pool...`)
+            // } else {
+            //   neededInstruction = ix;
+            //   parsedSig = sig
+            // }
+
+            neededInstruction = ix;
+            parsedSig = sig
+          }
+        } catch (e) {
+          console.log(e);
+        }
+      }
+
+      if (!neededInstruction) { return }
+      //@ts-ignore
+      const accounts = neededInstruction.accounts
+      const mint = accounts[0];
+      const mintAuth = accounts[1];
+      const bondingCurve = accounts[2];
+      const bondingCurveAta = accounts[3];
+      const globalState = accounts[4];
+      const user = signerKeypair.publicKey;
+      const userAta = getAssociatedTokenAddressSync(mint, user, true);
+      const signerTokenAccount = getAssociatedTokenAddressSync(mint, user, true, TOKEN_PROGRAM_ID,);
+      const [bondingCurveData, mintData, account] = await Promise.all([
+        program.account.bondingCurve.fetch(bondingCurve),
+        connection.getParsedAccountInfo(mint),
+        connection.getAccountInfo(signerTokenAccount, 'processed')
+      ]);
+
+      //@ts-ignore
+      const decimals = mintData.value?.data.parsed.info.decimals;
+      const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
+      const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
+
+      const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
+      const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
+      const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
+
+      const poolData: PoolData = {
+        account,
+        mint,
+        mintAuth,
+        bondingCurve,
+        bondingCurveAta,
+        globalState,
+        user,
+        userAta,
+        signerTokenAccount,
+        decimals,
+        virtualTokenReserves,
+        virtualSolReserves,
+        adjustedVirtualTokenReserves,
+        adjustedVirtualSolReserves,
+        virtualTokenPrice,
+      }
+
+      //console.log(adjustedVirtualSolReserves);
+      //console.log(adjustedVirtualTokenReserves);
+      //
+      //console.log(finalAmount);
+      //console.log(virtualTokenPrice);
+      //console.log(virtualTokenReserves);
+      //console.log(virtualSolReserves);
+      //console.log(decimals);
+      //console.log(mint);
+      //console.log(bondingCurve);
+      //console.log(finalAmount);
+
+      return poolData;
+
+
+    } catch (e) {
+      console.log(e);
+    }
+  }
+  return undefined
+}
+
+
+async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: number, globalState: PublicKey, feeRecipient: PublicKey, mint: PublicKey, bondingCurve: PublicKey, bondingCurveAta: PublicKey, user: PublicKey, userAta: PublicKey, decimals: number, signerTokenAccount: PublicKey, account: any): Promise<Transaction> {
+  const tx = new Transaction();
+
+  if (!account) {
+    tx.add(
+      createAssociatedTokenAccountInstruction(
+        user,
+        signerTokenAccount,
+        user,
+        mint,
+      )
+    )
+  };
+
+  const snipeIx = await program.methods.buy(
+    new BN((finalAmount * (10 ** decimals))),
+    new BN(maxSolCost * LAMPORTS_PER_SOL),
+  ).accounts({
+    global: globalState,
+    feeRecipient: feeRecipient,
+    mint: mint,
+    bondingCurve: bondingCurve,
+    associatedBondingCurve: bondingCurveAta,
+    associatedUser: userAta,
+    user: user,
+    systemProgram: SystemProgram.programId,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    rent: SYSVAR_RENT_PUBKEY,
+    eventAuthority: EVENT_AUTH,
+    program: program.programId,
+  }).instruction();
+  tx.add(snipeIx);
+
+  const memoix = new TransactionInstruction({
+    programId: new PublicKey(MEMO_PROGRAM_ID),
+    keys: [],
+    data: Buffer.from(getRandomNumber().toString(), "utf8")
+  })
+  tx.add(memoix);
+
+  //preparing transaction
+  // const hashAndCtx = await connection.getLatestBlockhashAndContext('processed');
+  const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
+  const recentBlockhash = hashAndCtx.value.blockhash;
+  const lastValidBlockHeight = hashAndCtx.value.lastValidBlockHeight;
+
+  tx.recentBlockhash = recentBlockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+  tx.feePayer = user;
+
+  const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
+
+  finalTx.sign(signerKeypair);
+
+  return finalTx;
+}
+
 
 async function buy(txId: string) {
 
   try {
 
-
-
-    const maxRetriesString = process.env.MAX_RETRIES as string;
-    const maxRetries = Number(maxRetriesString);
-    const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
-
-
-
-    //getting the amount to swap with:
-
-    const numberAmount = Number(0.0001);
-    const minMaxAmount = numberAmount + (numberAmount * 0.15);
-
-    //getting max amount to swap with:
-    const maxSolCost = minMaxAmount
-
-
-    //getting the micro lamports for compute budget price:
-
-    //start monitoring
-
-    let neededInstruction: PartiallyDecodedInstruction | ParsedInstruction | null = null;
-    let parsedSig: ParsedTransactionWithMeta | null = null
-
-
-    //const data = await connection.getConfirmedSignaturesForAddress2(new PublicKey(inputtedWallet), { limit: 10, },);
-    const confirmed_sigs: string[] = [txId]
-
-
-    const parsed_sigs = await parseSignatures(connection, confirmed_sigs);
-
-
-    for (var i = 0; i < parsed_sigs.length; i++) {
-      try {
-        const sig = parsed_sigs[i];
-        if (!sig) { continue }
-
-        const blockTime = sig.blockTime;
-        const currentTime = Math.floor(Date.now() / 1000);
-
-        //@ts-ignore
-        const instructions = (sig.transaction.message.instructions);
-
-        for (let ix of instructions) {
-          try {
-            const hasNeededProgramId = (ix.programId.toBase58() == programID);
-            //@ts-ignore
-            //console.log(ix.accounts.length);
-            //console.log(ix.programId.toBase58());
-            //console.log(confirmed_sigs[i])
-
-            if (!ix.accounts) {
-              continue
-            }
-
-            //@ts-ignore
-            const hasNeededAccounts = ix.accounts.length == 14;
-
-            if (hasNeededProgramId && hasNeededAccounts) {
-              // transaction should should be processed within one minute of detecting it here
-              // if (!blockTime || currentTime - blockTime > 60) {
-              //   console.log(`${getCurrentDateTime()} Old Bonding Curve detected, Ignoring stale pool...`)
-              // } else {
-              //   neededInstruction = ix;
-              //   parsedSig = sig
-              // }
-
-              neededInstruction = ix;
-              parsedSig = sig
-
-
-
-
-            }
-          } catch (e) {
-            console.log(e);
-          }
-        }
-
-
-      } catch (e) {
-        console.log(e);
-      }
-
+    const poolData: PoolData | undefined = await getMintPoolData(txId);
+    if (!poolData) {
+      console.log("No pool data found");
+      return;
     }
 
-
-
-    console.log(`${getCurrentDateTime()} No bonding curves found. Polling for new signatures...\n`);
-    await sleep(500);
-
-
-
-
-    if (!neededInstruction) { return }
-
-    console.log(`\nFound new pool/bonding-curve, Sniping with ${numberAmount} SOL..\n\n`);
-
-    //initializing program
-    const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
-
-
-    //@ts-ignore
-
-    //getting needed accounts
-    const accounts = neededInstruction.accounts
-    const mint = accounts[0];
-    const mintAuth = accounts[1];
-    const bondingCurve = accounts[2];
-    const bondingCurveAta = accounts[3];
-    const globalState = accounts[4];
-    const user = signerKeypair.publicKey;
-    const userAta = getAssociatedTokenAddressSync(mint, user, true);
-    const signerTokenAccount = getAssociatedTokenAddressSync(mint, user, true, TOKEN_PROGRAM_ID,);
-
-
-    const [bondingCurveData, mintData, account] = await Promise.all([
-      program.account.bondingCurve.fetch(bondingCurve),
-      connection.getParsedAccountInfo(mint),
-      connection.getAccountInfo(signerTokenAccount, 'processed')
-    ]);
-
-
-    //@ts-ignore
-    const decimals = mintData.value?.data.parsed.info.decimals;
-    const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
-    const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
-
-    const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
-    const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
-
-
-    const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
+    const {
+      account,
+      mint,
+      bondingCurve,
+      bondingCurveAta,
+      globalState,
+      user,
+      userAta,
+      signerTokenAccount,
+      decimals,
+      virtualTokenPrice } = poolData;
     const finalAmount = (numberAmount / virtualTokenPrice);
 
-
-    //console.log(adjustedVirtualSolReserves);
-    //console.log(adjustedVirtualTokenReserves);
-    //
-    //console.log(finalAmount);
-    //console.log(virtualTokenPrice);
-    //console.log(virtualTokenReserves);
-    //console.log(virtualSolReserves);
-    //console.log(decimals);
-    //console.log(mint);
-    //console.log(bondingCurve);
-    //console.log(finalAmount);
-
+    // console.log({
+    //   poolData
+    // });
 
 
     let retries = 0;
     while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
-
-      //creating tx;
-      const tx = new Transaction();
-
-      if (!account) {
-        tx.add(
-          createAssociatedTokenAccountInstruction(
-            user,
-            signerTokenAccount,
-            user,
-            mint,
-          )
-        )
-      };
-
-      const snipeIx = await program.methods.buy(
-        new BN((finalAmount * (10 ** decimals))),
-        new BN(maxSolCost * LAMPORTS_PER_SOL),
-      ).accounts({
-        global: globalState,
-        feeRecipient: feeRecipient,
-        mint: mint,
-        bondingCurve: bondingCurve,
-        associatedBondingCurve: bondingCurveAta,
-        associatedUser: userAta,
-        user: user,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-        eventAuthority: EVENT_AUTH,
-        program: program.programId,
-      }).instruction();
-      tx.add(snipeIx);
-
-
-      const memoix = new TransactionInstruction({
-        programId: new PublicKey(MEMO_PROGRAM_ID),
-        keys: [],
-        data: Buffer.from(getRandomNumber().toString(), "utf8")
-      })
-      tx.add(memoix);
-
-      //preparing transaction
-      // const hashAndCtx = await connection.getLatestBlockhashAndContext('processed');
-      const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
-      const recentBlockhash = hashAndCtx.value.blockhash;
-      const lastValidBlockHeight = hashAndCtx.value.lastValidBlockHeight;
-
-      tx.recentBlockhash = recentBlockhash;
-      tx.lastValidBlockHeight = lastValidBlockHeight;
-      tx.feePayer = user;
-
-      const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
-
-      finalTx.sign(signerKeypair);
+      const tx = await buildBuyTx(program, finalAmount, maxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
+      console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
+      console.log(`\n\nSending Transaction...`);
 
       const signature = await connection.sendRawTransaction(
-        finalTx.serialize(),
+        tx.serialize(),
         {
           preflightCommitment: "confirmed"
         }
       )
+      console.log("tx", signature)
 
       if (signature && signature.length > 0) {
         const latestBlockhash = await connection.getLatestBlockhash({
