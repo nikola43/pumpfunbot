@@ -10,6 +10,7 @@ import dotenv from "dotenv";
 import { parseSignatures } from "../utils";
 import { sleep, getUserInput } from "../utils";
 import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
+import fs from "fs";
 
 import {
   programID,
@@ -39,29 +40,40 @@ interface PoolData {
 process.removeAllListeners('warning')
 dotenv.config();
 const PRIVATE_KEY = "5QgozLz3sqx3Dcdj6rwKuCr6LJjq6J7FYaUgwjY2LduHjtNifMiQ5KwoCKVsAU9jkD94SPJEo1dMADoMY4roWDvM"
-
+const vitualSolToSol = 32000000000
 
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
 
-export const connection = new Connection(RPC_ENDPOINT, {
-  wsEndpoint: RPC_WEBSOCKET_ENDPOINT
-})
+// export const connection = new Connection(RPC_ENDPOINT, {
+//   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
+// })
 
 const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
-const priorityFee: number = 2000000
-// const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+// let priorityFee: number = 1000000
+let priorityFee: number = 2000000
+const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
 const maxRetries = Number(maxRetriesString);
-const numberAmount = Number(0.0001);
-const minMaxAmount = numberAmount + (numberAmount * 0.15);
+const buyNumberAmount = Number(0.0008);
+const buyMinMaxAmount = buyNumberAmount + (buyNumberAmount * 0.15);
+const buyMaxSolCost = buyMinMaxAmount
+
+const sellNumberAmount = Number(1000);
+const sellMinMaxAmount = sellNumberAmount + (sellNumberAmount * 0.15);
+const sellMaxSolCost = sellMinMaxAmount
+
+const detectedSignatures = new Set<string>();
+
+// const numberAmount = Number(0.0001);
+// const minMaxAmount = numberAmount + (numberAmount * 0.15);
 
 //getting max amount to swap with:
-const maxSolCost = minMaxAmount
+
 
 
 
@@ -105,13 +117,20 @@ async function fetchPumpPairs(txId: string) {
     }
 
 
-    if (accounts.length === 14) {
+    if (accounts.length === 14 && !detectedSignatures.has(txId)) {
       console.log("Accounts found:", accounts.length);
+
+      detectedSignatures.add(txId);
 
       console.log(
         `Signature for ${searchInstruction}:`,
         `https://solscan.io/tx/${txId}`
       );
+
+
+
+
+
 
       await buy(txId);
 
@@ -181,7 +200,7 @@ async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
         }
       }
 
-      if (!neededInstruction) { return }
+      if (!neededInstruction) { continue }
       //@ts-ignore
       const accounts = neededInstruction.accounts
       const mint = accounts[0];
@@ -305,16 +324,19 @@ async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: num
   return finalTx;
 }
 
+async function sendTx(tx: Transaction) {
+
+}
 
 async function buy(txId: string) {
 
   try {
-
     const poolData: PoolData | undefined = await getMintPoolData(txId);
     if (!poolData) {
       console.log("No pool data found");
       return;
     }
+
 
     const {
       account,
@@ -325,18 +347,27 @@ async function buy(txId: string) {
       user,
       userAta,
       signerTokenAccount,
+      virtualSolReserves,
+      adjustedVirtualTokenReserves,
+      adjustedVirtualSolReserves,
       decimals,
       virtualTokenPrice } = poolData;
-    const finalAmount = (numberAmount / virtualTokenPrice);
+    const finalAmount = (buyNumberAmount / virtualTokenPrice);
 
-    // console.log({
-    //   poolData
-    // });
+    console.log(`Virtual Sol Reserves: ${virtualSolReserves}`);
+    console.log(`Virtual Token Price: ${virtualTokenPrice}`);
+    console.log(`Adjusted Virtual Sol Reserves: ${adjustedVirtualSolReserves}`);
+    console.log(`Adjusted Virtual Token Reserves: ${adjustedVirtualTokenReserves}`);
+
+    console.log(`Mint: ${mint}`);
+
+    fs.writeFileSync("poolData.json", JSON.stringify(poolData, null, 2));
+
 
 
     let retries = 0;
     while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
-      const tx = await buildBuyTx(program, finalAmount, maxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
+      const tx = await buildBuyTx(program, finalAmount, buyMaxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
       console.log(`\n\nSending Transaction...`);
 
@@ -383,41 +414,48 @@ async function buy(txId: string) {
   }
 }
 
-async function sell(mintAddress: string, amount: number) {
-  const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
+async function sell(txId: string) {
 
-  const mint = new PublicKey(mintAddress);
-  const user = signerKeypair.publicKey;
-  const userAta = getAssociatedTokenAddressSync(mint, user, true);
-  const signerTokenAccount = getAssociatedTokenAddressSync(mint, user, true, TOKEN_PROGRAM_ID,);
-  const bondingCurve = ""
-  const bondingCurveAta = ""
-  const globalState = ""
-  // const globalState = accounts[4];
-  // const bondingCurveAta = accounts[3];
-  // const bondingCurve = accounts[2];
+  // const poolDataString = fs.readFileSync("data/poolData.json", "utf8");
+  // const poolData: PoolData = JSON.parse(poolDataString);
+  // const { globalState, mint, bondingCurve, bondingCurveAta, userAta, user } = poolData;
 
-  const [bondingCurveData, mintData, account] = await Promise.all([
-    program.account.bondingCurve.fetch(bondingCurve),
-    connection.getParsedAccountInfo(mint),
-    connection.getAccountInfo(signerTokenAccount, 'processed')
-  ]);
+  // console.log({
+  //   poolData
+  // })
+
+  const poolData: PoolData | undefined = await getMintPoolData(txId);
+  if (!poolData) {
+    console.log("No pool data found");
+    return;
+  }
+
+  const {
+    account,
+    mint,
+    bondingCurve,
+    bondingCurveAta,
+    globalState,
+    user,
+    userAta,
+    signerTokenAccount,
+    decimals,
+    virtualTokenPrice } = poolData;
 
   const tx = new Transaction();
+  const finalAmount = (sellNumberAmount / virtualTokenPrice);
 
-
-
-  const snipeIx = await program.methods.buy(
-    new BN((100 * (10 ** 9))),
-    new BN(10 * LAMPORTS_PER_SOL),
+  const snipeIx = await program.methods.sell(
+    new BN((finalAmount * (10 ** decimals))),
+    new BN(sellMaxSolCost * LAMPORTS_PER_SOL),
   ).accounts({
-    global: globalState,
+    global: new PublicKey(globalState),
     feeRecipient: feeRecipient,
-    mint: mint,
-    bondingCurve: bondingCurve,
-    associatedBondingCurve: bondingCurveAta,
-    associatedUser: userAta,
-    user: user,
+    mint: new PublicKey(mint),
+    bondingCurve: new PublicKey(bondingCurve),
+    associatedBondingCurve: new PublicKey(bondingCurveAta),
+    associatedUser: new PublicKey(userAta),
+    user: new PublicKey(user),
     systemProgram: SystemProgram.programId,
     tokenProgram: TOKEN_PROGRAM_ID,
     rent: SYSVAR_RENT_PUBKEY,
@@ -425,6 +463,13 @@ async function sell(mintAddress: string, amount: number) {
     program: program.programId,
   }).instruction();
   tx.add(snipeIx);
+
+  const memoix = new TransactionInstruction({
+    programId: new PublicKey(MEMO_PROGRAM_ID),
+    keys: [],
+    data: Buffer.from(getRandomNumber().toString(), "utf8")
+  })
+  tx.add(memoix);
 
   const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
   const recentBlockhash = hashAndCtx.value.blockhash;
@@ -475,7 +520,8 @@ async function sell(mintAddress: string, amount: number) {
 async function main() {
   // await findNewTokensV2()
 
-  await buy("fpBFT1T34oTB3v2NPrfkAvxnZ8X7brcz2orfBPkq5PaxWPaysKbrCGH34pD8BgnqwJuPgjj5dD4MSMyzLrvB9UC")
+  await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
+  //await sell("fpBFT1T34oTB3v2NPrfkAvxnZ8X7brcz2orfBPkq5PaxWPaysKbrCGH34pD8BgnqwJuPgjj5dD4MSMyzLrvB9UC")
 }
 
 main().catch(console.error);
