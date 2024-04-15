@@ -45,16 +45,16 @@ const vitualSolToSol = 32000000000
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
 
-// export const connection = new Connection(RPC_ENDPOINT, {
-//   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
-// })
+export const connection = new Connection(RPC_ENDPOINT, {
+  wsEndpoint: RPC_WEBSOCKET_ENDPOINT
+})
 
 const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
 // let priorityFee: number = 1000000
-let priorityFee: number = 2000000
-const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+let priorityFee: number = 5000000
+// const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
@@ -63,7 +63,7 @@ const buyNumberAmount = Number(0.0008);
 const buyMinMaxAmount = buyNumberAmount + (buyNumberAmount * 0.15);
 const buyMaxSolCost = buyMinMaxAmount
 
-const sellNumberAmount = Number(1000);
+const sellNumberAmount = Number(10000);
 const sellMinMaxAmount = sellNumberAmount + (sellNumberAmount * 0.15);
 const sellMaxSolCost = sellMinMaxAmount
 
@@ -443,19 +443,22 @@ async function sell(txId: string) {
     virtualTokenPrice } = poolData;
 
   const tx = new Transaction();
-  const finalAmount = (sellNumberAmount / virtualTokenPrice);
+  
+  
 
+  const mintDecimals = 6;
   const snipeIx = await program.methods.sell(
-    new BN((finalAmount * (10 ** decimals))),
-    new BN(sellMaxSolCost * LAMPORTS_PER_SOL),
+    //new BN(10000000000),
+    new BN((sellNumberAmount * (10 ** mintDecimals))),
+    new BN(1),
   ).accounts({
-    global: new PublicKey(globalState),
+    global: globalState,
     feeRecipient: feeRecipient,
-    mint: new PublicKey(mint),
-    bondingCurve: new PublicKey(bondingCurve),
-    associatedBondingCurve: new PublicKey(bondingCurveAta),
-    associatedUser: new PublicKey(userAta),
-    user: new PublicKey(user),
+    mint: mint,
+    bondingCurve: bondingCurve,
+    associatedBondingCurve: bondingCurveAta,
+    associatedUser: userAta,
+    user: user,
     systemProgram: SystemProgram.programId,
     tokenProgram: TOKEN_PROGRAM_ID,
     rent: SYSVAR_RENT_PUBKEY,
@@ -520,8 +523,8 @@ async function sell(txId: string) {
 async function main() {
   // await findNewTokensV2()
 
-  await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
-  //await sell("fpBFT1T34oTB3v2NPrfkAvxnZ8X7brcz2orfBPkq5PaxWPaysKbrCGH34pD8BgnqwJuPgjj5dD4MSMyzLrvB9UC")
+  // await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
+  await sell("52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW")
 }
 
 main().catch(console.error);
