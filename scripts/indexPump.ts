@@ -1,4 +1,4 @@
-import { validateSolAddress, getKeypairFromBs58, ConstructOptimalTransaction, getRandomNumber, buildBundle, onBundleResult, getCurrentDateTime, roundUpToNonZeroString } from "../utils";
+import { validateSolAddress, getKeypairFromBs58, ConstructOptimalTransaction, getRandomNumber, buildBundle, onBundleResult, getCurrentDateTime, roundUpToNonZeroString, listenProgramLogs, getMintPoolData, sendTx } from "../utils";
 import idl from "../constants/idl.json";
 import { TransactionInstruction, Connection, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction, PartiallyDecodedInstruction, ParsedInstruction, ParsedTransactionWithMeta, } from "@solana/web3.js"
 import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
@@ -18,24 +18,10 @@ import {
   feeRecipient,
   EVENT_AUTH,
 } from "../constants"
+import { PoolData } from "../types";
+import { send } from "process";
 
-interface PoolData {
-  account: any,
-  mint: any,
-  mintAuth: any,
-  bondingCurve: any,
-  bondingCurveAta: any,
-  globalState: any,
-  user: any,
-  userAta: any,
-  signerTokenAccount: any,
-  decimals: any,
-  virtualTokenReserves: any,
-  virtualSolReserves: any,
-  adjustedVirtualTokenReserves: any,
-  adjustedVirtualSolReserves: any,
-  virtualTokenPrice: any,
-}
+
 
 process.removeAllListeners('warning')
 dotenv.config();
@@ -77,25 +63,7 @@ const detectedSignatures = new Set<string>();
 
 
 
-async function startConnection(
-  programAddress: PublicKey,
-  searchInstruction: string,
-  callBackFunction: Function
-): Promise<void> {
-  console.log("Monitoring logs for program:", programAddress.toString());
-  connection.onLogs(
-    programAddress,
-    ({ logs, err, signature }) => {
-      if (err) return;
-      // console.log("Logs found:", logs);
-      // if (logs && logs.some((log) => log.includes(searchInstruction))) {
-      if (logs) {
-        callBackFunction(signature);
-      }
-    },
-    "finalized"
-  );
-}
+
 
 async function fetchPumpPairs(txId: string) {
   try {
@@ -116,34 +84,23 @@ async function fetchPumpPairs(txId: string) {
       return;
     }
 
-
     if (accounts.length === 14 && !detectedSignatures.has(txId)) {
-      console.log("Accounts found:", accounts.length);
-
+      // console.log("Accounts found:", accounts.length);
       detectedSignatures.add(txId);
-
       console.log(
         `Signature for ${searchInstruction}:`,
         `https://solscan.io/tx/${txId}`
       );
-
-
-
-
-
-
       await buy(txId);
-
     }
-
-
   } catch (error) {
     // console.error(error);
   }
 }
 
-async function findNewTokensV2() {
-  startConnection(
+async function listenNewPairs(connection: Connection) {
+  listenProgramLogs(
+    connection,
     pumpProgramId,
     searchInstruction,
     fetchPumpPairs
@@ -151,123 +108,26 @@ async function findNewTokensV2() {
 }
 
 
-async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
-  let neededInstruction: PartiallyDecodedInstruction | ParsedInstruction | null = null;
-  let parsedSig: ParsedTransactionWithMeta | null = null
-  const confirmed_sigs: string[] = [txId]
-  const parsed_sigs = await parseSignatures(connection, confirmed_sigs);
 
-  for (var i = 0; i < parsed_sigs.length; i++) {
-    try {
-      const sig = parsed_sigs[i];
-      if (!sig) { continue }
-
-      const blockTime = sig.blockTime;
-      const currentTime = Math.floor(Date.now() / 1000);
-
-      //@ts-ignore
-      const instructions = (sig.transaction.message.instructions);
-
-      for (let ix of instructions) {
-        try {
-          const hasNeededProgramId = (ix.programId.toBase58() == programID);
-          //@ts-ignore
-          //console.log(ix.accounts.length);
-          //console.log(ix.programId.toBase58());
-          //console.log(confirmed_sigs[i])
-
-          if (!ix.accounts) {
-            continue
-          }
-
-          //@ts-ignore
-          const hasNeededAccounts = ix.accounts.length == 14;
-
-          if (hasNeededProgramId && hasNeededAccounts) {
-            // transaction should should be processed within one minute of detecting it here
-            // if (!blockTime || currentTime - blockTime > 60) {
-            //   console.log(`${getCurrentDateTime()} Old Bonding Curve detected, Ignoring stale pool...`)
-            // } else {
-            //   neededInstruction = ix;
-            //   parsedSig = sig
-            // }
-
-            neededInstruction = ix;
-            parsedSig = sig
-          }
-        } catch (e) {
-          console.log(e);
-        }
-      }
-
-      if (!neededInstruction) { continue }
-      //@ts-ignore
-      const accounts = neededInstruction.accounts
-      const mint = accounts[0];
-      const mintAuth = accounts[1];
-      const bondingCurve = accounts[2];
-      const bondingCurveAta = accounts[3];
-      const globalState = accounts[4];
-      const user = signerKeypair.publicKey;
-      const userAta = getAssociatedTokenAddressSync(mint, user, true);
-      const signerTokenAccount = getAssociatedTokenAddressSync(mint, user, true, TOKEN_PROGRAM_ID,);
-      const [bondingCurveData, mintData, account] = await Promise.all([
-        program.account.bondingCurve.fetch(bondingCurve),
-        connection.getParsedAccountInfo(mint),
-        connection.getAccountInfo(signerTokenAccount, 'processed')
-      ]);
-
-      //@ts-ignore
-      const decimals = mintData.value?.data.parsed.info.decimals;
-      const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
-      const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
-
-      const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
-      const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
-      const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
-
-      const poolData: PoolData = {
-        account,
-        mint,
-        mintAuth,
-        bondingCurve,
-        bondingCurveAta,
-        globalState,
-        user,
-        userAta,
-        signerTokenAccount,
-        decimals,
-        virtualTokenReserves,
-        virtualSolReserves,
-        adjustedVirtualTokenReserves,
-        adjustedVirtualSolReserves,
-        virtualTokenPrice,
-      }
-
-      //console.log(adjustedVirtualSolReserves);
-      //console.log(adjustedVirtualTokenReserves);
-      //
-      //console.log(finalAmount);
-      //console.log(virtualTokenPrice);
-      //console.log(virtualTokenReserves);
-      //console.log(virtualSolReserves);
-      //console.log(decimals);
-      //console.log(mint);
-      //console.log(bondingCurve);
-      //console.log(finalAmount);
-
-      return poolData;
+async function buildBuyTx(program: Program, buyNumberAmount: number, maxSolCost: number, feeRecipient: PublicKey, poolData: PoolData, priorityFee: number): Promise<Transaction> {
 
 
-    } catch (e) {
-      console.log(e);
-    }
-  }
-  return undefined
-}
 
+  const {
+    account,
+    mint,
+    bondingCurve,
+    bondingCurveAta,
+    globalState,
+    user,
+    userAta,
+    signerTokenAccount,
+    decimals,
+    virtualTokenPrice
+  } = poolData;
 
-async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: number, globalState: PublicKey, feeRecipient: PublicKey, mint: PublicKey, bondingCurve: PublicKey, bondingCurveAta: PublicKey, user: PublicKey, userAta: PublicKey, decimals: number, signerTokenAccount: PublicKey, account: any): Promise<Transaction> {
+  const buyAmount = (buyNumberAmount / virtualTokenPrice);
+
   const tx = new Transaction();
 
   if (!account) {
@@ -282,7 +142,7 @@ async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: num
   };
 
   const snipeIx = await program.methods.buy(
-    new BN((finalAmount * (10 ** decimals))),
+    new BN((buyAmount * (10 ** decimals))),
     new BN(maxSolCost * LAMPORTS_PER_SOL),
   ).accounts({
     global: globalState,
@@ -324,85 +184,31 @@ async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: num
   return finalTx;
 }
 
-async function sendTx(tx: Transaction) {
 
-}
 
 async function buy(txId: string) {
 
   try {
-    const poolData: PoolData | undefined = await getMintPoolData(txId);
+    const poolData: PoolData | undefined = await getMintPoolData(connection, program, signerKeypair.publicKey, txId);
     if (!poolData) {
       console.log("No pool data found");
       return;
     }
 
-
-    const {
-      account,
-      mint,
-      bondingCurve,
-      bondingCurveAta,
-      globalState,
-      user,
-      userAta,
-      signerTokenAccount,
-      virtualSolReserves,
-      adjustedVirtualTokenReserves,
-      adjustedVirtualSolReserves,
-      decimals,
-      virtualTokenPrice } = poolData;
-    const finalAmount = (buyNumberAmount / virtualTokenPrice);
-
-    console.log(`Virtual Sol Reserves: ${virtualSolReserves}`);
-    console.log(`Virtual Token Price: ${virtualTokenPrice}`);
-    console.log(`Adjusted Virtual Sol Reserves: ${adjustedVirtualSolReserves}`);
-    console.log(`Adjusted Virtual Token Reserves: ${adjustedVirtualTokenReserves}`);
-
-    console.log(`Mint: ${mint}`);
-
-    fs.writeFileSync("poolData.json", JSON.stringify(poolData, null, 2));
-
-
+    fs.writeFileSync(`data/${poolData.mint.toBase58()}.json`, JSON.stringify(poolData, null, 2));
 
     let retries = 0;
     while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
-      const tx = await buildBuyTx(program, finalAmount, buyMaxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
+      const tx = await buildBuyTx(program, buyNumberAmount, buyMaxSolCost, new PublicKey(feeRecipient), poolData, priorityFee);
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
       console.log(`\n\nSending Transaction...`);
 
-      const signature = await connection.sendRawTransaction(
-        tx.serialize(),
-        {
-          preflightCommitment: "confirmed"
-        }
-      )
-      console.log("tx", signature)
-
-      if (signature && signature.length > 0) {
-        const latestBlockhash = await connection.getLatestBlockhash({
-          commitment: "confirmed"
-        })
-        const confirmation = await connection.confirmTransaction(
-          {
-            signature,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            blockhash: latestBlockhash.blockhash
-          },
-          "confirmed"
-        )
-        if (!confirmation.value.err) {
-          console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
-        } else {
-          console.log(`Transaction failed: ${confirmation.value.err}`);
-        }
-      } else {
-
+      const signature = await sendTx(connection, tx);
+      if (signature) {
+        console.log(`Transaction sent: https://solscan.io/tx/${signature}`);
+        break;
       }
-
-
-
-      // console.log(`Transaction sent: https://solscan.io/tx/${signature}`);
+      retries++;
     }
 
     console.log('\nMax Retries Reached.');
@@ -424,7 +230,7 @@ async function sell(txId: string) {
   //   poolData
   // })
 
-  const poolData: PoolData | undefined = await getMintPoolData(txId);
+  const poolData: PoolData | undefined = await getMintPoolData(connection, program, signerKeypair.publicKey, txId);
   if (!poolData) {
     console.log("No pool data found");
     return;
@@ -443,8 +249,8 @@ async function sell(txId: string) {
     virtualTokenPrice } = poolData;
 
   const tx = new Transaction();
-  
-  
+
+
 
   const mintDecimals = 6;
   const snipeIx = await program.methods.sell(
@@ -521,10 +327,22 @@ async function sell(txId: string) {
 
 
 async function main() {
-  // await findNewTokensV2()
+  await listenNewPairs(connection)
 
   // await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
-  await sell("52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW")
+  // await sell("52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW")
+  // const txId = "52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW"
+  // await sell(txId)
+
+
+  // const poolData: PoolData | undefined = await getMintPoolData(txId);
+  // if (!poolData) {
+  //   console.log("No pool data found");
+  //   return;
+  // }
+
+  // const { virtualTokenPrice } = poolData;
+  // console.log(virtualTokenPrice);
 }
 
 main().catch(console.error);

@@ -1,5 +1,5 @@
 
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, sendAndConfirmRawTransaction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, ParsedInstruction, PartiallyDecodedInstruction, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, sendAndConfirmRawTransaction } from "@solana/web3.js";
 import base58 from "bs58";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { Transaction, ComputeBudgetProgram, } from "@solana/web3.js";
@@ -10,6 +10,52 @@ import { BundleResult } from "jito-ts/dist/gen/block-engine/bundle";
 import { searcherClient } from 'jito-ts/dist/sdk/block-engine/searcher';
 import { Bundle } from "jito-ts/dist/sdk/block-engine/types";
 import * as anchor from '@coral-xyz/anchor';
+import { Idl } from "@coral-xyz/anchor";
+import { program } from "@coral-xyz/anchor/dist/cjs/native/system";
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { programID } from "../constants";
+import { PoolData } from "../types";
+
+export async function sendTx(connection: Connection, tx: Transaction): Promise<string> {
+
+    try {
+
+        const signature = await connection.sendRawTransaction(
+            tx.serialize(),
+            {
+                preflightCommitment: "processed",
+                skipPreflight: true,
+                maxRetries: 2
+            }
+        )
+
+        if (!signature) {
+            throw new Error("Invalid signature");
+        }
+
+        console.log("tx", signature)
+
+        const latestBlockhash = await connection.getLatestBlockhash({
+            commitment: "processed"
+        })
+        const confirmation = await connection.confirmTransaction(
+            {
+                signature,
+                lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+                blockhash: latestBlockhash.blockhash
+            },
+            "processed"
+        )
+
+        if (confirmation.value.err) {
+            throw new Error(confirmation.value.err.toString());
+        }
+
+        return signature;
+    } catch (e) {
+        return ""
+    }
+}
 
 export async function send_transactions(
     Transactions: Transaction[],
@@ -76,7 +122,7 @@ export function roundUpToNonZeroString(num: number): string {
         return numString;
     } else {
         const integerPart = numString.substring(0, decimalIndex);
-        
+
         let decimalPart = numString.substring(decimalIndex + 1);
         decimalPart = decimalPart.replace(/0+$/, '');
 
@@ -413,4 +459,153 @@ export function getMetadataDelegateRecord(mint: PublicKey, ata: PublicKey, deleg
         new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
     )
     return pda
+}
+
+
+export async function getMintPrice(connection: Connection, program: anchor.Program<Idl>, mint: PublicKey, bondingCurve: PublicKey): Promise<number> {
+    const [bondingCurveData, mintData] = await Promise.all([
+        program.account.bondingCurve.fetch(bondingCurve),
+        connection.getParsedAccountInfo(mint),
+    ]);
+
+    //@ts-ignore
+    const decimals = mintData.value?.data.parsed.info.decimals;
+    const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
+    const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
+    const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
+    const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
+    const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
+
+    return virtualTokenPrice;
+}
+
+
+export async function listenProgramLogs(
+    connection: Connection,
+    programAddress: PublicKey,
+    searchInstruction: string,
+    callBackFunction: Function
+): Promise<void> {
+    console.log("Monitoring logs for program:", programAddress.toString());
+    connection.onLogs(
+        programAddress,
+        ({ logs, err, signature }) => {
+            if (err) return;
+            if (logs && logs.some((log) => log.includes(searchInstruction))) {
+                callBackFunction(signature);
+            }
+        },
+        "finalized"
+    );
+}
+
+export async function getMintPoolData(connection: Connection, program: anchor.Program<Idl>, user: PublicKey, txId: string): Promise<PoolData | undefined> {
+    let neededInstruction: PartiallyDecodedInstruction | ParsedInstruction | null = null;
+    // let parsedSig: ParsedTransactionWithMeta | null = null
+    const parsed_sigs = await parseSignatures(connection, [txId]);
+
+    for (var i = 0; i < parsed_sigs.length; i++) {
+        try {
+            const sig = parsed_sigs[i];
+            if (!sig) { continue }
+
+            const blockTime = sig.blockTime;
+            const currentTime = Math.floor(Date.now() / 1000);
+
+            //@ts-ignore
+            const instructions = (sig.transaction.message.instructions);
+
+            for (let ix of instructions) {
+                try {
+                    const hasNeededProgramId = (ix.programId.toBase58() == programID);
+                    //@ts-ignore
+                    if (!ix.accounts) {
+                        continue
+                    }
+
+                    //@ts-ignore
+                    const hasNeededAccounts = ix.accounts.length == 14;
+
+                    if (hasNeededProgramId && hasNeededAccounts) {
+                        // transaction should should be processed within one minute of detecting it here
+                        // if (!blockTime || currentTime - blockTime > 60) {
+                        //   console.log(`${getCurrentDateTime()} Old Bonding Curve detected, Ignoring stale pool...`)
+                        // } else {
+                        //   neededInstruction = ix;
+                        //   parsedSig = sig
+                        // }
+
+                        neededInstruction = ix;
+                        //parsedSig = sig
+                    }
+                } catch (e) {
+                    console.log(e);
+                }
+            }
+
+            if (!neededInstruction) { continue }
+            //@ts-ignore
+            const accounts = neededInstruction.accounts
+            const mint = accounts[0];
+            const mintAuth = accounts[1];
+            const bondingCurve = accounts[2];
+            const bondingCurveAta = accounts[3];
+            const globalState = accounts[4];
+            const userAta = getAssociatedTokenAddressSync(mint, user, true);
+            const signerTokenAccount = getAssociatedTokenAddressSync(mint, user, true, TOKEN_PROGRAM_ID,);
+            const [bondingCurveData, mintData, account] = await Promise.all([
+                // @ts-ignore
+                program.account.bondingCurve.fetch(bondingCurve),
+                connection.getParsedAccountInfo(mint),
+                connection.getAccountInfo(signerTokenAccount, 'processed')
+            ]);
+
+            //@ts-ignore
+            const decimals = mintData.value?.data.parsed.info.decimals;
+            const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
+            const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
+            const realTokenReserves = (bondingCurveData.realTokenReserves as any).toNumber();
+            const realSolReserves = (bondingCurveData.realSolReserves as any).toNumber();
+            const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
+            const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
+            const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
+
+            const poolData: PoolData = {
+                account,
+                mint,
+                mintAuth,
+                bondingCurve,
+                bondingCurveAta,
+                globalState,
+                user,
+                userAta,
+                signerTokenAccount,
+                decimals,
+                virtualTokenReserves,
+                virtualSolReserves,
+                realTokenReserves,
+                realSolReserves,
+                adjustedVirtualTokenReserves,
+                adjustedVirtualSolReserves,
+                virtualTokenPrice,
+            }
+
+            //console.log(adjustedVirtualSolReserves);
+            //console.log(adjustedVirtualTokenReserves);
+            //
+            //console.log(finalAmount);
+            //console.log(virtualTokenPrice);
+            //console.log(virtualTokenReserves);
+            //console.log(virtualSolReserves);
+            //console.log(decimals);
+            //console.log(mint);
+            //console.log(bondingCurve);
+            //console.log(finalAmount);
+
+            return poolData;
+        } catch (e) {
+            console.log(e);
+        }
+    }
+    return undefined
 }
