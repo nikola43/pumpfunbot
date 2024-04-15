@@ -1,0 +1,19 @@
+{
+  "account": null,
+  "mint": "8pJ8Qm2cn6kEbziwdbXki27rdb1qeQM6SzzindAVfMDE",
+  "mintAuth": "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+  "bondingCurve": "4hevohvpKaReD7ivSTZrqAZuh2DTXh86amGZfdSfvJHw",
+  "bondingCurveAta": "GQ53Aqfa1oPrBdHZqh4TFtrrmm11MYT1wCDyybzagB8L",
+  "globalState": "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+  "user": "84evJbzLnRcdk7zdP9kzAW9sydraiEfcrAiZAyUAqgPf",
+  "userAta": "84uVXrc1ByaqZjMRnSFsSa5GLTxSoMGmBSPaKSnaEyR1",
+  "signerTokenAccount": "84uVXrc1ByaqZjMRnSFsSa5GLTxSoMGmBSPaKSnaEyR1",
+  "decimals": 6,
+  "virtualTokenReserves": 1038387096774194,
+  "virtualSolReserves": 31000000000,
+  "realTokenReserves": 758487096774194,
+  "realSolReserves": 1000000000,
+  "adjustedVirtualTokenReserves": 1038387096.774194,
+  "adjustedVirtualSolReserves": 31,
+  "virtualTokenPrice": 2.9853991922957425e-8
+}

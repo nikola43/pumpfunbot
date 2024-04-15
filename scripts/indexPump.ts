@@ -31,16 +31,16 @@ const vitualSolToSol = 32000000000
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
 
-export const connection = new Connection(RPC_ENDPOINT, {
-  wsEndpoint: RPC_WEBSOCKET_ENDPOINT
-})
+// export const connection = new Connection(RPC_ENDPOINT, {
+//   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
+// })
 
 const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
 // let priorityFee: number = 1000000
 let priorityFee: number = 5000000
-// const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
@@ -51,7 +51,6 @@ const buyMaxSolCost = buyMinMaxAmount
 
 const sellNumberAmount = Number(10000);
 const sellMinMaxAmount = sellNumberAmount + (sellNumberAmount * 0.15);
-const sellMaxSolCost = sellMinMaxAmount
 
 const detectedSignatures = new Set<string>();
 
@@ -110,9 +109,6 @@ async function listenNewPairs(connection: Connection) {
 
 
 async function buildBuyTx(program: Program, buyNumberAmount: number, maxSolCost: number, feeRecipient: PublicKey, poolData: PoolData, priorityFee: number): Promise<Transaction> {
-
-
-
   const {
     account,
     mint,
@@ -327,9 +323,9 @@ async function sell(txId: string) {
 
 
 async function main() {
-  await listenNewPairs(connection)
+  // await listenNewPairs(connection)
 
-  // await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
+  await buy("3LFtxNbGippSZVKULqZ9hk6oWHqPz9r4JtP8Fg29QrcTnNt9xBQR8Ry2rqpdZi4h45mJetm7gupc4wZuwBQDh2P")
   // await sell("52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW")
   // const txId = "52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW"
   // await sell(txId)
