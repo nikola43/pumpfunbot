@@ -11,6 +11,7 @@ import { parseSignatures } from "../utils";
 import { sleep, getUserInput } from "../utils";
 import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
 import fs from "fs";
+import axios from "axios";
 
 import {
   programID,
@@ -44,6 +45,8 @@ const vitualSolToSol = 32000000000
 
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
+
+const pumpfunApi = "https://client-api-2-74b1891ee9f9.herokuapp.com/coins?offset=0&limit=50&sort=last_trade_timestamp&searchTerm="
 
 // export const connection = new Connection(RPC_ENDPOINT, {
 //   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
@@ -142,6 +145,12 @@ async function findNewTokensV2() {
   ).catch(console.error);
 }
 
+async function getMintPoolDataFromMint(mintAddress: string): Promise<PoolData | undefined> {
+  const response = await axios.get(pumpfunApi + mintAddress);
+  console.log(response.data);
+
+  
+}
 
 async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
   let neededInstruction: PartiallyDecodedInstruction | ParsedInstruction | null = null;

@@ -13,6 +13,7 @@
     "@coral-xyz/anchor": "^0.29.0",
     "@solana/spl-token": "^0.4.3",
     "@solana/web3.js": "^1.91.2",
+    "axios": "^1.6.8",
     "bn.js": "^5.2.1",
     "bs58": "^5.0.0",
     "dotenv": "^16.4.5",
