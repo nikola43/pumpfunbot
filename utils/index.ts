@@ -1,5 +1,5 @@
 
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, sendAndConfirmRawTransaction } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, sendAndConfirmRawTransaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import base58 from "bs58";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { Transaction, ComputeBudgetProgram, } from "@solana/web3.js";
@@ -76,7 +76,7 @@ export function roundUpToNonZeroString(num: number): string {
         return numString;
     } else {
         const integerPart = numString.substring(0, decimalIndex);
-        
+
         let decimalPart = numString.substring(decimalIndex + 1);
         decimalPart = decimalPart.replace(/0+$/, '');
 
@@ -413,4 +413,60 @@ export function getMetadataDelegateRecord(mint: PublicKey, ata: PublicKey, deleg
         new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
     )
     return pda
+}
+
+
+export async function getPriorityFeeEstimate(HeliusURL: string, priorityLevel: any, transaction: Transaction) {
+    const response = await fetch(HeliusURL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "1",
+            method: "getPriorityFeeEstimate",
+            params: [
+                {
+                    transaction: bs58.encode(transaction.serialize()), // Pass the serialized transaction in Base58
+                    options: { priorityLevel: priorityLevel },
+                },
+            ],
+        }),
+    });
+    const data = await response.json();
+    console.log(
+        "Fee in function for",
+        priorityLevel,
+        " :",
+        data.result.priorityFeeEstimate
+    );
+    return data.result;
+}
+
+export async function sendTransactionWithPriorityFee(HeliusURL: string, priorityLevel: string, fromKeypair: Keypair, transaction: Transaction, connection: Connection): Promise<string | undefined> {
+    let txid;
+
+    transaction.recentBlockhash = (
+        await connection.getLatestBlockhash()
+    ).blockhash;
+    transaction.sign(fromKeypair);
+
+    let feeEstimate = { priorityFeeEstimate: 0 };
+    if (priorityLevel !== "NONE") {
+        feeEstimate = await getPriorityFeeEstimate(HeliusURL, priorityLevel, transaction);
+        const computePriceIx = ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: feeEstimate.priorityFeeEstimate,
+        });
+        transaction.add(computePriceIx);
+    }
+
+    try {
+        txid = await sendAndConfirmTransaction(connection, transaction, [
+            fromKeypair,
+        ]);
+        console.log(`Transaction sent successfully with signature ${txid}`);
+
+    } catch (e) {
+        console.error(`Failed to send transaction: ${e}`);
+    }
+    return txid;
 }

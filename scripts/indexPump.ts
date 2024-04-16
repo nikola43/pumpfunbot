@@ -1,4 +1,4 @@
-import { validateSolAddress, getKeypairFromBs58, ConstructOptimalTransaction, getRandomNumber, buildBundle, onBundleResult, getCurrentDateTime, roundUpToNonZeroString } from "../utils";
+import { validateSolAddress, getKeypairFromBs58, ConstructOptimalTransaction, getRandomNumber, buildBundle, onBundleResult, getCurrentDateTime, roundUpToNonZeroString, getPriorityFeeEstimate, sendTransactionWithPriorityFee } from "../utils";
 import idl from "../constants/idl.json";
 import { TransactionInstruction, Connection, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction, PartiallyDecodedInstruction, ParsedInstruction, ParsedTransactionWithMeta, } from "@solana/web3.js"
 import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
@@ -416,11 +416,7 @@ async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: num
   tx.lastValidBlockHeight = lastValidBlockHeight;
   tx.feePayer = user;
 
-  const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
-
-  finalTx.sign(signerKeypair);
-
-  return finalTx;
+  return tx;
 }
 
 
@@ -435,35 +431,35 @@ async function buyV2(mint: string, buySolAmount: number, user: string) {
     console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
     console.log(`\n\nSending Transaction...`);
 
-    const signature = await connection.sendRawTransaction(
-      tx.serialize(),
-      {
-        preflightCommitment: "confirmed"
-      }
-    )
-    console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
+    // const signature = await connection.sendRawTransaction(
+    //   tx.serialize(),
+    //   {
+    //     preflightCommitment: "confirmed"
+    //   }
+    // )
+    // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
-    if (signature && signature.length > 0) {
-      const latestBlockhash = await connection.getLatestBlockhash({
-        commitment: "confirmed"
-      })
-      const confirmation = await connection.confirmTransaction(
-        {
-          signature,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          blockhash: latestBlockhash.blockhash
-        },
-        "confirmed"
-      )
-      if (!confirmation.value.err) {
-        console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
-        break;
-      } else {
-        console.log(`Transaction failed: ${confirmation.value.err}`);
-      }
-    } else {
+    // if (signature && signature.length > 0) {
+    //   const latestBlockhash = await connection.getLatestBlockhash({
+    //     commitment: "confirmed"
+    //   })
+    //   const confirmation = await connection.confirmTransaction(
+    //     {
+    //       signature,
+    //       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+    //       blockhash: latestBlockhash.blockhash
+    //     },
+    //     "confirmed"
+    //   )
+    //   if (!confirmation.value.err) {
+    //     console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+    //     break;
+    //   } else {
+    //     console.log(`Transaction failed: ${confirmation.value.err}`);
+    //   }
+    // } else {
 
-    }
+    // }
   }
 }
 
@@ -510,35 +506,37 @@ async function buy(txId: string) {
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
       console.log(`\n\nSending Transaction...`);
 
-      const signature = await connection.sendRawTransaction(
-        tx.serialize(),
-        {
-          preflightCommitment: "confirmed"
-        }
-      )
-      console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
+      const signature = sendTransactionWithPriorityFee(process.env.RPC_URL as string, "MEDIUM", signerKeypair, tx, connection);
 
-      if (signature && signature.length > 0) {
-        const latestBlockhash = await connection.getLatestBlockhash({
-          commitment: "confirmed"
-        })
-        const confirmation = await connection.confirmTransaction(
-          {
-            signature,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            blockhash: latestBlockhash.blockhash
-          },
-          "confirmed"
-        )
-        if (!confirmation.value.err) {
-          console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
-          break;
-        } else {
-          console.log(`Transaction failed: ${confirmation.value.err}`);
-        }
-      } else {
+      // const signature = await connection.sendRawTransaction(
+      //   tx.serialize(),
+      //   {
+      //     preflightCommitment: "confirmed"
+      //   }
+      // )
+      // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
-      }
+      // if (signature && signature.length > 0) {
+      //   const latestBlockhash = await connection.getLatestBlockhash({
+      //     commitment: "confirmed"
+      //   })
+      //   const confirmation = await connection.confirmTransaction(
+      //     {
+      //       signature,
+      //       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      //       blockhash: latestBlockhash.blockhash
+      //     },
+      //     "confirmed"
+      //   )
+      //   if (!confirmation.value.err) {
+      //     console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+      //     break;
+      //   } else {
+      //     console.log(`Transaction failed: ${confirmation.value.err}`);
+      //   }
+      // } else {
+
+      // }
 
 
 
