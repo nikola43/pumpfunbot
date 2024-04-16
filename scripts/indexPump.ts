@@ -19,6 +19,7 @@ import {
   feeRecipient,
   EVENT_AUTH,
 } from "../constants"
+import { getTokenMetadata } from "../metadata";
 
 interface PoolData {
   account: any,
@@ -713,8 +714,11 @@ async function main() {
   //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
   //await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
 
-  // await buyV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", buyNumberAmount, signerKeypair.publicKey.toBase58())
-  await sellV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", sellNumberAmount, signerKeypair.publicKey.toBase58())
+  //await buyV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", buyNumberAmount, signerKeypair.publicKey.toBase58())
+  //await sellV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", sellNumberAmount, signerKeypair.publicKey.toBase58())
+
+  const tokenMetadata = await getTokenMetadata(new PublicKey("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA"), connection)
+  console.log(tokenMetadata)
 }
 
 main().catch(console.error);
