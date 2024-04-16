@@ -38,9 +38,22 @@ interface PoolData {
   virtualTokenPrice: any,
 }
 
+interface MinPoolData {
+  globalState: PublicKey,
+  feeRecipient: PublicKey,
+  mint: PublicKey,
+  bondingCurve: PublicKey,
+  bondingCurveAta: PublicKey,
+  user: PublicKey,
+  userAta: PublicKey,
+  decimals: number,
+  signerTokenAccount: PublicKey,
+  account: any, virtualTokenPrice: number
+}
+
 process.removeAllListeners('warning')
 dotenv.config();
-const PRIVATE_KEY = "5QgozLz3sqx3Dcdj6rwKuCr6LJjq6J7FYaUgwjY2LduHjtNifMiQ5KwoCKVsAU9jkD94SPJEo1dMADoMY4roWDvM"
+const PRIVATE_KEY = process.env.SIGNER_PRIVATE_KEY as string;
 const vitualSolToSol = 32000000000
 
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
@@ -145,11 +158,46 @@ async function findNewTokensV2() {
   ).catch(console.error);
 }
 
-async function getMintPoolDataFromMint(mintAddress: string): Promise<PoolData | undefined> {
+async function getMintPoolDataFromMint(mintAddress: string, ownerAddress: string): Promise<MinPoolData | undefined> {
+  const mint = new PublicKey(mintAddress);
+  const owner = new PublicKey(ownerAddress);
+  const globalState = new PublicKey("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf")
   const response = await axios.get(pumpfunApi + mintAddress);
-  console.log(response.data);
 
-  
+  const bondingCurve = response.data[0].bonding_curve;
+  const bondingCurveAta = response.data[0].associated_bonding_curve;
+
+  const userAta = getAssociatedTokenAddressSync(mint, owner, true);
+  const signerTokenAccount = getAssociatedTokenAddressSync(mint, owner, true, TOKEN_PROGRAM_ID,);
+  const [bondingCurveData, mintData, account] = await Promise.all([
+    program.account.bondingCurve.fetch(bondingCurve),
+    connection.getParsedAccountInfo(mint),
+    connection.getAccountInfo(signerTokenAccount, 'processed')
+  ]);
+
+  //@ts-ignore
+  const decimals = mintData.value?.data.parsed.info.decimals;
+  const virtualTokenReserves = (bondingCurveData.virtualTokenReserves as any).toNumber();
+  const virtualSolReserves = (bondingCurveData.virtualSolReserves as any).toNumber();
+
+  const adjustedVirtualTokenReserves = virtualTokenReserves / (10 ** decimals);
+  const adjustedVirtualSolReserves = virtualSolReserves / LAMPORTS_PER_SOL;
+  const virtualTokenPrice = adjustedVirtualSolReserves / adjustedVirtualTokenReserves;
+
+  const poolData: MinPoolData = {
+    globalState,
+    feeRecipient: new PublicKey(feeRecipient),
+    mint,
+    bondingCurve,
+    bondingCurveAta,
+    user: owner,
+    userAta,
+    signerTokenAccount,
+    decimals,
+    account,
+    virtualTokenPrice,
+  }
+  return poolData;
 }
 
 async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
@@ -325,8 +373,48 @@ async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: num
   return finalTx;
 }
 
-async function sendTx(tx: Transaction) {
 
+
+async function buyV2(mint: string, buySolAmount: number, user: string) {
+  const minPoolData = await getMintPoolDataFromMint(mint, user);
+
+  const finalAmount = (buySolAmount / minPoolData!.virtualTokenPrice);
+  const retries = 0;
+  while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
+    const tx = await buildBuyTx(program, finalAmount, buyMaxSolCost, minPoolData!.globalState, new PublicKey(feeRecipient), minPoolData!.mint, minPoolData!.bondingCurve, minPoolData!.bondingCurveAta, new PublicKey(user), minPoolData!.userAta, minPoolData!.decimals, minPoolData!.signerTokenAccount, minPoolData!.account);
+    console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
+    console.log(`\n\nSending Transaction...`);
+
+    const signature = await connection.sendRawTransaction(
+      tx.serialize(),
+      {
+        preflightCommitment: "confirmed"
+      }
+    )
+    console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
+
+    if (signature && signature.length > 0) {
+      const latestBlockhash = await connection.getLatestBlockhash({
+        commitment: "confirmed"
+      })
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          blockhash: latestBlockhash.blockhash
+        },
+        "confirmed"
+      )
+      if (!confirmation.value.err) {
+        console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+        break;
+      } else {
+        console.log(`Transaction failed: ${confirmation.value.err}`);
+      }
+    } else {
+
+    }
+  }
 }
 
 async function buy(txId: string) {
@@ -394,6 +482,7 @@ async function buy(txId: string) {
         )
         if (!confirmation.value.err) {
           console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+          break;
         } else {
           console.log(`Transaction failed: ${confirmation.value.err}`);
         }
@@ -413,6 +502,95 @@ async function buy(txId: string) {
     console.log(e);
     console.log('an error has occurred');
   }
+}
+
+async function sellV2(mint: string, buySolAmount: number, user: string) {
+
+  const minPoolData = await getMintPoolDataFromMint(mint, user);
+
+  if (!minPoolData) {
+    console.log("No pool data found");
+    return;
+  }
+
+
+  const { globalState, bondingCurve, bondingCurveAta, userAta } = minPoolData;
+
+  const tx = new Transaction();
+
+
+
+  const mintDecimals = 6;
+  const snipeIx = await program.methods.sell(
+    //new BN(10000000000),
+    new BN((sellNumberAmount * (10 ** mintDecimals))),
+    new BN(1),
+  ).accounts({
+    global: globalState,
+    feeRecipient: feeRecipient,
+    mint: mint,
+    bondingCurve: bondingCurve,
+    associatedBondingCurve: bondingCurveAta,
+    associatedUser: userAta,
+    user: user,
+    systemProgram: SystemProgram.programId,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    rent: SYSVAR_RENT_PUBKEY,
+    eventAuthority: EVENT_AUTH,
+    program: program.programId,
+  }).instruction();
+  tx.add(snipeIx);
+
+  const memoix = new TransactionInstruction({
+    programId: new PublicKey(MEMO_PROGRAM_ID),
+    keys: [],
+    data: Buffer.from(getRandomNumber().toString(), "utf8")
+  })
+  tx.add(memoix);
+
+  const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
+  const recentBlockhash = hashAndCtx.value.blockhash;
+  const lastValidBlockHeight = hashAndCtx.value.lastValidBlockHeight;
+
+  tx.recentBlockhash = recentBlockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+  tx.feePayer = new PublicKey(user);
+
+  const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
+
+  finalTx.sign(signerKeypair);
+
+  const signature = await connection.sendRawTransaction(
+    finalTx.serialize(),
+    {
+      preflightCommitment: "confirmed"
+    }
+  )
+
+  console.log(`Transaction sent: https://solscan.io/tx/${signature}`);
+
+  if (signature && signature.length > 0) {
+    const latestBlockhash = await connection.getLatestBlockhash({
+      commitment: "confirmed"
+    })
+    const confirmation = await connection.confirmTransaction(
+      {
+        signature,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        blockhash: latestBlockhash.blockhash
+      },
+      "confirmed"
+    )
+    if (!confirmation.value.err) {
+      console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+    } else {
+      console.log(`Transaction failed: ${confirmation.value.err}`);
+    }
+  } else {
+
+  }
+
+
 }
 
 async function sell(txId: string) {
@@ -525,7 +703,10 @@ async function main() {
   // await findNewTokensV2()
 
   //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
-  await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
+  //await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
+
+  // await buyV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", buyNumberAmount, signerKeypair.publicKey.toBase58())
+  await sellV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", sellNumberAmount, signerKeypair.publicKey.toBase58())
 }
 
 main().catch(console.error);
