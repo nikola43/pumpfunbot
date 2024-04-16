@@ -45,16 +45,16 @@ const vitualSolToSol = 32000000000
 const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
 
-export const connection = new Connection(RPC_ENDPOINT, {
-  wsEndpoint: RPC_WEBSOCKET_ENDPOINT
-})
+// export const connection = new Connection(RPC_ENDPOINT, {
+//   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
+// })
 
 const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
 // let priorityFee: number = 1000000
-let priorityFee: number = 5000000
-// const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+let priorityFee: number = 8000000
+const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
@@ -126,17 +126,9 @@ async function fetchPumpPairs(txId: string) {
         `Signature for ${searchInstruction}:`,
         `https://solscan.io/tx/${txId}`
       );
-
-
-
-
-
-
+      console.log("buying...");
       await buy(txId);
-
     }
-
-
   } catch (error) {
     // console.error(error);
   }
@@ -377,7 +369,7 @@ async function buy(txId: string) {
           preflightCommitment: "confirmed"
         }
       )
-      console.log("tx", signature)
+      console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
       if (signature && signature.length > 0) {
         const latestBlockhash = await connection.getLatestBlockhash({
@@ -443,8 +435,8 @@ async function sell(txId: string) {
     virtualTokenPrice } = poolData;
 
   const tx = new Transaction();
-  
-  
+
+
 
   const mintDecimals = 6;
   const snipeIx = await program.methods.sell(
@@ -523,8 +515,8 @@ async function sell(txId: string) {
 async function main() {
   // await findNewTokensV2()
 
-  // await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
-  await sell("52v5G9z2kxLxdymHrXhq1DYcyTkDcztggJveCxxxKCLL7LnTGxLwQVmWWbmKzm4xAug33LwBL3iw8HL1TrYgYxiW")
+  //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
+  await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
 }
 
 main().catch(console.error);
