@@ -315,6 +315,55 @@ async function getMintPoolData(txId: string): Promise<PoolData | undefined> {
   return undefined
 }
 
+async function buildSellTx(program: Program, sellAmount: number, globalState: PublicKey, feeRecipient: PublicKey, mint: PublicKey, bondingCurve: PublicKey, bondingCurveAta: PublicKey, user: PublicKey, userAta: PublicKey): Promise<Transaction> {
+
+  const tx = new Transaction();
+
+
+
+  const mintDecimals = 6;
+  const snipeIx = await program.methods.sell(
+    //new BN(10000000000),
+    new BN((sellAmount * (10 ** mintDecimals))),
+    new BN(1),
+  ).accounts({
+    global: globalState,
+    feeRecipient: feeRecipient,
+    mint: mint,
+    bondingCurve: bondingCurve,
+    associatedBondingCurve: bondingCurveAta,
+    associatedUser: userAta,
+    user: user,
+    systemProgram: SystemProgram.programId,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    rent: SYSVAR_RENT_PUBKEY,
+    eventAuthority: EVENT_AUTH,
+    program: program.programId,
+  }).instruction();
+  tx.add(snipeIx);
+
+  const memoix = new TransactionInstruction({
+    programId: new PublicKey(MEMO_PROGRAM_ID),
+    keys: [],
+    data: Buffer.from(getRandomNumber().toString(), "utf8")
+  })
+  tx.add(memoix);
+
+  const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
+  const recentBlockhash = hashAndCtx.value.blockhash;
+  const lastValidBlockHeight = hashAndCtx.value.lastValidBlockHeight;
+
+  tx.recentBlockhash = recentBlockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
+  tx.feePayer = user;
+
+  const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
+
+  finalTx.sign(signerKeypair);
+
+  return finalTx;
+}
+
 
 async function buildBuyTx(program: Program, finalAmount: number, maxSolCost: number, globalState: PublicKey, feeRecipient: PublicKey, mint: PublicKey, bondingCurve: PublicKey, bondingCurveAta: PublicKey, user: PublicKey, userAta: PublicKey, decimals: number, signerTokenAccount: PublicKey, account: any): Promise<Transaction> {
   const tx = new Transaction();
@@ -504,9 +553,10 @@ async function buy(txId: string) {
   }
 }
 
-async function sellV2(mint: string, buySolAmount: number, user: string) {
+async function sellV2(mintAddress: string, sellTokenAmount: number, user: string) {
 
-  const minPoolData = await getMintPoolDataFromMint(mint, user);
+
+  const minPoolData = await getMintPoolDataFromMint(mintAddress, user);
 
   if (!minPoolData) {
     console.log("No pool data found");
@@ -514,54 +564,12 @@ async function sellV2(mint: string, buySolAmount: number, user: string) {
   }
 
 
-  const { globalState, bondingCurve, bondingCurveAta, userAta } = minPoolData;
-
-  const tx = new Transaction();
+  const sellTx = await buildSellTx(program, sellTokenAmount, minPoolData.globalState, new PublicKey(feeRecipient), minPoolData.mint, minPoolData.bondingCurve, minPoolData.bondingCurveAta, new PublicKey(user), minPoolData.userAta);
 
 
-
-  const mintDecimals = 6;
-  const snipeIx = await program.methods.sell(
-    //new BN(10000000000),
-    new BN((sellNumberAmount * (10 ** mintDecimals))),
-    new BN(1),
-  ).accounts({
-    global: globalState,
-    feeRecipient: feeRecipient,
-    mint: mint,
-    bondingCurve: bondingCurve,
-    associatedBondingCurve: bondingCurveAta,
-    associatedUser: userAta,
-    user: user,
-    systemProgram: SystemProgram.programId,
-    tokenProgram: TOKEN_PROGRAM_ID,
-    rent: SYSVAR_RENT_PUBKEY,
-    eventAuthority: EVENT_AUTH,
-    program: program.programId,
-  }).instruction();
-  tx.add(snipeIx);
-
-  const memoix = new TransactionInstruction({
-    programId: new PublicKey(MEMO_PROGRAM_ID),
-    keys: [],
-    data: Buffer.from(getRandomNumber().toString(), "utf8")
-  })
-  tx.add(memoix);
-
-  const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
-  const recentBlockhash = hashAndCtx.value.blockhash;
-  const lastValidBlockHeight = hashAndCtx.value.lastValidBlockHeight;
-
-  tx.recentBlockhash = recentBlockhash;
-  tx.lastValidBlockHeight = lastValidBlockHeight;
-  tx.feePayer = new PublicKey(user);
-
-  const finalTx = await ConstructOptimalTransaction(tx, connection, priorityFee);
-
-  finalTx.sign(signerKeypair);
 
   const signature = await connection.sendRawTransaction(
-    finalTx.serialize(),
+    sellTx.serialize(),
     {
       preflightCommitment: "confirmed"
     }
