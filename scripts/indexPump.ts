@@ -58,8 +58,8 @@ dotenv.config();
 const PRIVATE_KEY = process.env.SIGNER_PRIVATE_KEY as string;
 const vitualSolToSol = 32000000000
 
-const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
-const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
+// const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
+// const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
 
 const pumpfunApi = "https://client-api-2-74b1891ee9f9.herokuapp.com/coins?offset=0&limit=50&sort=last_trade_timestamp&searchTerm="
 
@@ -135,7 +135,7 @@ async function fetchPumpPairs(txId: string) {
       return;
     }
 
-
+    console.log("Accounts found:", accounts.length);
     if (accounts.length === 14 && !detectedSignatures.has(txId)) {
       console.log("Accounts found:", accounts.length);
 
@@ -525,13 +525,25 @@ async function buy(txId: string) {
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
       console.log(`\n\nSending Transaction...`);
 
-      const signature = await connection.sendRawTransaction(
-        tx.serialize(),
-        {
-          preflightCommitment: "confirmed"
-        }
-      )
-      console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
+      const latestBlockhash = await connection.getLatestBlockhash({
+        commitment: "confirmed",
+      });
+  
+      const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
+      const recentBlockhash = hashAndCtx.value.blockhash;
+  
+      const jito = new JitoTransactionExecutor(CUSTOM_FEE!, connection);
+      const r = await jito.executeAndConfirm(tx, signerKeypair, latestBlockhash);
+      const confimed = r.confirmed;
+      const signature = r.signature;
+
+      // const signature = await connection.sendRawTransaction(
+      //   tx.serialize(),
+      //   {
+      //     preflightCommitment: "confirmed"
+      //   }
+      // )
+      // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
       if (signature && signature.length > 0) {
         const latestBlockhash = await connection.getLatestBlockhash({
@@ -724,12 +736,12 @@ async function sell(txId: string) {
 
 
 async function main() {
-  // await findNewTokensV2()
+  await findNewTokensV2()
 
   //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
   //await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
 
-  await buyV2("BSWT8JGC2eMwxVXeAAmhmjSvRqSzzycPqpasXs8yS1pk", buyNumberAmount, signerKeypair.publicKey.toBase58())
+  // await buyV2("BSWT8JGC2eMwxVXeAAmhmjSvRqSzzycPqpasXs8yS1pk", buyNumberAmount, signerKeypair.publicKey.toBase58())
   //await sellV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", sellNumberAmount, signerKeypair.publicKey.toBase58())
 
   // const tokenMetadata = await getTokenMetadata(new PublicKey("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA"), connection)
