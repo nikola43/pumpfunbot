@@ -494,8 +494,9 @@ async function buy(txId: string) {
     }
 
     while (!hasSell) {
-      const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
-      const { virtualTokenPrice } = minPoolData!;
+      // const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
+      const poolData: PoolData | undefined = await getMintPoolData(txId);
+      const { virtualTokenPrice } = poolData!;
       console.log(`Virtual Token Price: ${virtualTokenPrice}`);
       await sleep(200);
     }
@@ -589,8 +590,9 @@ async function buy(txId: string) {
     }
 
     while (!hasSell) {
-      const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
-      const { virtualTokenPrice } = minPoolData!;
+      // const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
+      const poolData: PoolData | undefined = await getMintPoolData(txId);
+      const { virtualTokenPrice } = poolData!;
       console.log(`Virtual Token Price: ${virtualTokenPrice}`);
       await sleep(200);
     }
