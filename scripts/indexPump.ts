@@ -60,19 +60,21 @@ const vitualSolToSol = 32000000000
 
 // const RPC_ENDPOINT = "https://solana-mainnet.core.chainstack.com/444a9722c51931fbf1f90e396ce78229"
 // const RPC_WEBSOCKET_ENDPOINT = "wss://api.mainnet-beta.solana.com"
+//const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+
 
 const pumpfunApi = "https://client-api-2-74b1891ee9f9.herokuapp.com/coins?offset=0&limit=50&sort=last_trade_timestamp&searchTerm="
 
-// export const connection = new Connection(RPC_ENDPOINT, {
-//   wsEndpoint: RPC_WEBSOCKET_ENDPOINT
-// })
+export const connection = new Connection(process.env.RPC_URL as string, {
+  wsEndpoint: process.env.WS_RPC_URL as string
+})
 
 const searchInstruction = "InitializeMint2";
 const pumpProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const signerKeypair = getKeypairFromBs58(PRIVATE_KEY);
 // let priorityFee: number = 1000000
 let priorityFee: number = 8000000
-const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
+//const connection = new Connection(process.env.RPC_URL as string, { commitment: 'confirmed', });
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
@@ -161,6 +163,19 @@ async function findNewTokensV2() {
     searchInstruction,
     fetchPumpPairs
   ).catch(console.error);
+}
+
+async function findNewTokens() {
+  connection.onProgramAccountChange(
+    pumpProgramId,
+    async (updatedAccountInfo) => {
+      // const key = updatedAccountInfo.accountId.toString()
+      // console.log("New token found:", key);
+
+
+      console.log("Pool state:", updatedAccountInfo);
+
+    }, "confirmed")
 }
 
 async function getMintPoolDataFromMint(mintAddress: string, ownerAddress: string): Promise<MinPoolData | undefined> {
@@ -764,7 +779,9 @@ async function sell(txId: string) {
 
 
 async function main() {
-  await findNewTokensV2()
+  // await findNewTokensV2()
+
+  await findNewTokens()
 
   //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
   //await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
