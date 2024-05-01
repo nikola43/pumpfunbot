@@ -483,12 +483,21 @@ async function buyV2(mint: string, buySolAmount: number, user: string) {
 }
 
 async function buy(txId: string) {
+  let hasBought = false;
+  let hasSell = false;
 
   try {
     const poolData: PoolData | undefined = await getMintPoolData(txId);
     if (!poolData) {
       console.log("No pool data found");
       return;
+    }
+
+    while (!hasSell) {
+      const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
+      const { virtualTokenPrice } = minPoolData!;
+      console.log(`Virtual Token Price: ${virtualTokenPrice}`);
+      await sleep(200);
     }
 
 
@@ -520,6 +529,7 @@ async function buy(txId: string) {
 
 
     let retries = 0;
+
     while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
       const tx = await buildBuyTx(program, finalAmount, buyMaxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
@@ -528,14 +538,20 @@ async function buy(txId: string) {
       const latestBlockhash = await connection.getLatestBlockhash({
         commitment: "confirmed",
       });
-  
+
       const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
       const recentBlockhash = hashAndCtx.value.blockhash;
-  
+
       const jito = new JitoTransactionExecutor(CUSTOM_FEE!, connection);
       const r = await jito.executeAndConfirm(tx, signerKeypair, latestBlockhash);
       const confimed = r.confirmed;
       const signature = r.signature;
+
+      if (confimed) {
+        console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+        hasBought = true;
+        break;
+      }
 
       // const signature = await connection.sendRawTransaction(
       //   tx.serialize(),
@@ -545,35 +561,42 @@ async function buy(txId: string) {
       // )
       // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
-      if (signature && signature.length > 0) {
-        const latestBlockhash = await connection.getLatestBlockhash({
-          commitment: "confirmed"
-        })
-        const confirmation = await connection.confirmTransaction(
-          {
-            signature,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            blockhash: latestBlockhash.blockhash
-          },
-          "confirmed"
-        )
-        if (!confirmation.value.err) {
-          console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
-          break;
-        } else {
-          console.log(`Transaction failed: ${confirmation.value.err}`);
-        }
-      } else {
+      // if (signature && signature.length > 0) {
+      //   const latestBlockhash = await connection.getLatestBlockhash({
+      //     commitment: "confirmed"
+      //   })
+      //   const confirmation = await connection.confirmTransaction(
+      //     {
+      //       signature,
+      //       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      //       blockhash: latestBlockhash.blockhash
+      //     },
+      //     "confirmed"
+      //   )
+      //   if (!confirmation.value.err) {
+      //     console.log(`Transaction confirmed: https://solscan.io/tx/${signature}`);
+      //     break;
+      //   } else {
+      //     console.log(`Transaction failed: ${confirmation.value.err}`);
+      //   }
+      // } else {
 
-      }
+      // }
 
 
 
       // console.log(`Transaction sent: https://solscan.io/tx/${signature}`);
     }
 
-    console.log('\nMax Retries Reached.');
-    process.exit(1);
+    while (!hasSell) {
+      const minPoolData = await getMintPoolDataFromMint(poolData.mint, signerKeypair.publicKey.toBase58());
+      const { virtualTokenPrice } = minPoolData!;
+      console.log(`Virtual Token Price: ${virtualTokenPrice}`);
+      await sleep(200);
+    }
+
+    // console.log('\nMax Retries Reached.');
+    // process.exit(1);
 
   } catch (e) {
     console.log(e);
