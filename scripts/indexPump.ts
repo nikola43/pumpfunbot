@@ -118,6 +118,7 @@ async function startConnection(
 
 async function fetchPumpPairs(txId: string) {
   try {
+    console.log("Fetching transaction:", txId, new Date().toISOString());
     const tx = await connection.getParsedTransaction(txId, {
       maxSupportedTransactionVersion: 0,
       commitment: "confirmed",
@@ -141,9 +142,11 @@ async function fetchPumpPairs(txId: string) {
 
       detectedSignatures.add(txId);
 
+
       console.log(
         `Signature for ${searchInstruction}:`,
-        `https://solscan.io/tx/${txId}`
+        `https://solscan.io/tx/${txId}`,
+        new Date().toISOString()
       );
       console.log("buying...");
       await buy(txId);
@@ -543,6 +546,7 @@ async function buy(txId: string) {
       const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
       const recentBlockhash = hashAndCtx.value.blockhash;
 
+      console.log(`\n\nSending Transaction...`, new Date().toISOString());
       const jito = new JitoTransactionExecutor(CUSTOM_FEE!, connection);
       const r = await jito.executeAndConfirm(tx, signerKeypair, latestBlockhash);
       const confimed = r.confirmed;
