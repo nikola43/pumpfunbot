@@ -169,8 +169,12 @@ async function findNewTokens() {
   connection.onProgramAccountChange(
     pumpProgramId,
     async (updatedAccountInfo) => {
-      // const key = updatedAccountInfo.accountId.toString()
-      // console.log("New token found:", key);
+      const key = updatedAccountInfo.accountId.toString()
+      console.log("New token found:", key, new Date().toISOString());
+
+      // get number of accounts
+      const accounts = updatedAccountInfo.accountInfo.data;
+
 
 
       console.log("Pool state:", updatedAccountInfo);
