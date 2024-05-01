@@ -9,7 +9,7 @@ import NodeWallet from "@coral-xyz/anchor/dist/cjs/nodewallet";
 import dotenv from "dotenv";
 import { parseSignatures } from "../utils";
 import { sleep, getUserInput } from "../utils";
-import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
+// import { searcherClient } from "jito-ts/dist/sdk/block-engine/searcher";
 import fs from "fs";
 import axios from "axios";
 
@@ -20,6 +20,7 @@ import {
   EVENT_AUTH,
 } from "../constants"
 import { getTokenMetadata } from "../metadata";
+import { JitoTransactionExecutor } from "./jito-rpc-transaction-executor";
 
 interface PoolData {
   account: any,
@@ -75,6 +76,7 @@ const connection = new Connection(process.env.RPC_URL as string, { commitment: '
 
 const program = new Program(idl as anchor.Idl, programID, new anchor.AnchorProvider(connection, new NodeWallet(signerKeypair), anchor.AnchorProvider.defaultOptions()));
 const maxRetriesString = process.env.MAX_RETRIES as string;
+const CUSTOM_FEE = process.env.CUSTOM_FEE as string;
 const maxRetries = Number(maxRetriesString);
 const buyNumberAmount = Number(0.0008);
 const buyMinMaxAmount = buyNumberAmount + (buyNumberAmount * 0.15);
@@ -435,13 +437,26 @@ async function buyV2(mint: string, buySolAmount: number, user: string) {
     console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
     console.log(`\n\nSending Transaction...`);
 
-    const signature = await connection.sendRawTransaction(
-      tx.serialize(),
-      {
-        preflightCommitment: "confirmed"
-      }
-    )
-    console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
+    const latestBlockhash = await connection.getLatestBlockhash({
+      commitment: "confirmed",
+    });
+
+    const hashAndCtx = await connection.getLatestBlockhashAndContext('confirmed');
+    const recentBlockhash = hashAndCtx.value.blockhash;
+
+    const jito = new JitoTransactionExecutor(CUSTOM_FEE!, connection);
+    const r = await jito.executeAndConfirm(tx, signerKeypair, latestBlockhash);
+    const confimed = r.confirmed;
+    const signature = r.signature;
+    //const signature: string = ""
+
+    // const signature = await connection.sendRawTransaction(
+    //   tx.serialize(),
+    //   {
+    //     preflightCommitment: "confirmed"
+    //   }
+    // )
+    // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`);
 
     if (signature && signature.length > 0) {
       const latestBlockhash = await connection.getLatestBlockhash({
@@ -714,11 +729,11 @@ async function main() {
   //await buy("26t9WW1Tys2TthEwkE3LHgAVaMP2rv7FbsEVUpLywL7ZxfV5365AiZyFnjyJYrhkoCxCrCMLTV4eLjEmupmMNPrH")
   //await sell("4vFnPMGXcbNcktRKWcCNWVGAwRNWJjB6kEM61YeNNmyvXLWjjVBh4kRYYWJn2RNXHj3sVEpUXh9Xk26PYgjx9hFA")
 
-  //await buyV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", buyNumberAmount, signerKeypair.publicKey.toBase58())
+  await buyV2("BSWT8JGC2eMwxVXeAAmhmjSvRqSzzycPqpasXs8yS1pk", buyNumberAmount, signerKeypair.publicKey.toBase58())
   //await sellV2("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA", sellNumberAmount, signerKeypair.publicKey.toBase58())
 
-  const tokenMetadata = await getTokenMetadata(new PublicKey("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA"), connection)
-  console.log(tokenMetadata)
+  // const tokenMetadata = await getTokenMetadata(new PublicKey("DCNqAP2PFtZik4KZEV6UoARE6AB7Ym7vUL8pB7J9g4wA"), connection)
+  // console.log(tokenMetadata)
 }
 
 main().catch(console.error);
