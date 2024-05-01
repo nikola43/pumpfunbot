@@ -118,7 +118,6 @@ async function startConnection(
 
 async function fetchPumpPairs(txId: string) {
   try {
-    console.log("Fetching transaction:", txId, new Date().toISOString());
     const tx = await connection.getParsedTransaction(txId, {
       maxSupportedTransactionVersion: 0,
       commitment: "confirmed",
