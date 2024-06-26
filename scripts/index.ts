@@ -1,6 +1,6 @@
 import { validateSolAddress, getKeypairFromBs58, ConstructOptimalTransaction, getRandomNumber, buildBundle, onBundleResult, getCurrentDateTime, roundUpToNonZeroString, sleep } from "../utils";
 import idl from "../constants/idl.json";
-import { TransactionInstruction, Connection, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction, PartiallyDecodedInstruction, ParsedInstruction, ParsedTransactionWithMeta, Keypair, Commitment, Finality, VersionedTransactionResponse, } from "@solana/web3.js"
+import { TransactionInstruction, Connection, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction, PartiallyDecodedInstruction, ParsedInstruction, ParsedTransactionWithMeta, Keypair, Commitment, Finality, VersionedTransactionResponse, TransactionMessage, VersionedTransaction, } from "@solana/web3.js"
 import { TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAccount, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
@@ -16,7 +16,8 @@ export type TransactionResult = {
   results?: VersionedTransactionResponse;
   success: boolean;
 };
-
+import { Bundle } from 'jito-ts/dist/sdk/block-engine/types';
+import { searcherClient } from 'jito-ts/dist/sdk/block-engine/searcher';
 const PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
 export const GLOBAL_ACCOUNT_SEED = "global";
@@ -551,7 +552,6 @@ async function buy(txId: string) {
     while (retries <= (maxRetries ? Math.max(1, maxRetries) : 5)) {
       const finalTx = await buildBuyTx(program, finalAmount, buyMaxSolCost, globalState, new PublicKey(feeRecipient), mint, bondingCurve, bondingCurveAta, user, userAta, decimals, signerTokenAccount, account);
       console.log(`\n\nRetrying ${retries + 1} of ${maxRetries ? maxRetries : 5}...`);
-      console.log(`\n\nSending Transaction...`);
 
 
       const JITO_AUTH_PRIVATE_KEY = "4LgKQEP9b64X3FnWJAjNk45eJ1CCMYkJbK2Aiuc9rQLGqfy8L7u8Ar9z9YU2mWSpwfvpCymgcUe2oWUhmEVhDVSe"
@@ -565,18 +565,38 @@ async function buy(txId: string) {
         signerKeypair,
         //slotSubscriber
       );
+      let jito_pubkey = new PublicKey("96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5");
 
-      const latestBlockhash = await connection.getLatestBlockhash();
-      const result = await txExecutor.executeAndConfirm(finalTx, signerKeypair, latestBlockhash)
-      const signature = result.signature;
+      const jito_tip = 30000000
+      const tipIx = SystemProgram.transfer({
+        fromPubkey: signerKeypair.publicKey,
+        toPubkey: jito_pubkey,
+        lamports: jito_tip
+      })
 
-      // const signature = await connection.sendRawTransaction(
-      //   finalTx.serialize(),
-      //   {
-      //     preflightCommitment: "confirmed"
-      //   }
-      // )
-      // console.log(`Buy Transaction sent: https://solscan.io/tx/${signature}`, new Date().toLocaleString());
+      //creating versionedTx
+      const messageV0 = new TransactionMessage({
+        payerKey: finalTx.feePayer!,
+        recentBlockhash: finalTx.recentBlockhash!,
+        instructions: [...finalTx.instructions, tipIx],
+      }).compileToV0Message();
+
+      const vTransaction = new VersionedTransaction(messageV0);
+      vTransaction.sign([signerKeypair]);
+      //const jitoAuthKeypair = getKeypairFromBs58(jitoAuthPrivateKey);
+
+      const search = searcherClient(jitoBlockEngineUrl, jitoWallet);
+      const bund = new Bundle([], 2);
+      const buildBundle = bund.addTransactions(vTransaction);
+
+      const signature = bs58.encode(vTransaction.signatures[0]);
+      console.log({
+        signature
+      })
+      const res = await search.sendBundle(buildBundle as Bundle);
+      console.log(`Line 597 -> Buy Transaction sent: https://solscan.io/tx/${signature}`, new Date().toLocaleString());
+      console.log("Bundle Id", res);
+
 
       if (signature && signature.length > 0) {
         const latestBlockhash = await connection.getLatestBlockhash({
